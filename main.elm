@@ -31,6 +31,9 @@ getNewRideId: Model -> Int
 getNewRideId model =
   List.length model.rides
 
+convertToId: String -> Int
+convertToId idAsString = Result.withDefault -1 (String.toInt idAsString)
+
 isValidMemberId: Model -> Int -> Bool
 isValidMemberId model memberId =
   case getMaybeMemberById model memberId of
@@ -57,11 +60,23 @@ getRideById model rideId =
     Nothing -> Ride -1 (Member -1 "invalid ride") []
     Just ride -> ride
 
+addNewRide: Model -> Int -> Model
+addNewRide model driverId =
+  if isValidMemberId model driverId then
+    {
+      model | rides = (
+        model.rides ++ [ (Ride (getNewRideId model) (getMemberById model driverId) []) ]
+      )
+    }
+  else
+    model
+
 addPassengerToRideInModel: Model -> Int -> Member -> Model
 addPassengerToRideInModel model rideId passenger =
-  {
-    model | rides = List.map (\ride -> addPassengerToRideWithId rideId ride passenger) model.rides
-  }
+  if isValidMemberId model passenger.id then
+    { model | rides = List.map (\ride -> addPassengerToRideWithId rideId ride passenger) model.rides }
+  else
+    model
 
 addPassengerToRideWithId: Int -> Ride -> Member -> Ride
 addPassengerToRideWithId rideIdToUpdate ride passenger =
@@ -97,19 +112,10 @@ update: Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     NewDriver newDriverId ->
-      let newIdAsInt = Result.withDefault -1 (String.toInt newDriverId) in
-      if isValidMemberId model newIdAsInt then
-        ( { model |
-            rides = (model.rides ++ [
-              (Ride (getNewRideId model) (getMemberById model newIdAsInt) [])
-            ] )
-          }, Cmd.none)
-      else
-        (model, Cmd.none)
+      (addNewRide model (convertToId newDriverId), Cmd.none)
 
     NewPassenger rideId newPassengerId ->
-      let newIdAsInt = Result.withDefault -1 (String.toInt newPassengerId) in
-      (addPassengerToRideInModel model rideId (getMemberById model newIdAsInt), Cmd.none)
+      (addPassengerToRideInModel model rideId (getMemberById model (convertToId newPassengerId)), Cmd.none)
 
 -- views
 
