@@ -57,14 +57,19 @@ getRideById model rideId =
     Nothing -> Ride -1 (Member -1 "invalid ride") []
     Just ride -> ride
 
-addPassengerToRide: Model -> Ride -> Member -> Model
-addPassengerToRide model ride passenger =
+addPassengerToRideInModel: Model -> Int -> Member -> Model
+addPassengerToRideInModel model rideId passenger =
   {
-    model |
-      rides = (model.rides ++ [
-        (Ride (getNewRideId model) (getMemberById model passenger.id) [])
-      ] )
+    model | rides = List.map (\ride -> addPassengerToRideWithId rideId ride passenger) model.rides
   }
+
+addPassengerToRideWithId: Int -> Ride -> Member -> Ride
+addPassengerToRideWithId rideIdToUpdate ride passenger =
+  if ride.id == rideIdToUpdate then
+    { ride | passengers = (ride.passengers ++ [passenger]) }
+  else
+    ride
+
 
 init: (Model, Cmd Msg)
 init =
@@ -104,16 +109,7 @@ update msg model =
 
     NewPassenger rideId newPassengerId ->
       let newIdAsInt = Result.withDefault -1 (String.toInt newPassengerId) in
-      (addPassengerToRide model (getRideById model rideId) (getMemberById model newIdAsInt), Cmd.none)
-      -- if isValidMemberId model newIdAsInt then
-      --   -- ADD A PASSENGER TO THE RIDE HERE
-      --   ( { model |
-      --       rides = (model.rides ++ [
-      --         (Ride (getNewRideId model) (getMemberById model newIdAsInt) [])
-      --       ] )
-      --     }, Cmd.none)
-      -- else
-      --   (model, Cmd.none)
+      (addPassengerToRideInModel model rideId (getMemberById model newIdAsInt), Cmd.none)
 
 -- views
 
@@ -136,7 +132,7 @@ viewConstellations model =
           th [] [ text "Passengers" ]
         ]
       ],
-      tbody [] (List.reverse (viewNewRide model :: viewRides model))
+      tbody [] ((viewRides model) ++ [ viewNewRide model ])
     ]
   ]
 
@@ -166,7 +162,7 @@ viewPassengersTable model ride =
   [
     table [] [
       tbody [] [
-        tr [] (List.reverse ((viewNewPassenger model ride) :: (viewPassengers model ride)))
+        tr [] ((viewPassengers model ride) ++ [ viewNewPassenger model ride ])
       ]
     ]
   ]
