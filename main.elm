@@ -79,18 +79,38 @@ addPassengerToRide ride passenger =
     Nothing -> Just invalidRide
     Just ride -> Just { ride | passengers = (Dict.insert passenger.id passenger ride.passengers) }
 
-getMembersNotYetParticipatingToday: Model -> List Member
+getMembersNotYetParticipatingToday: Model -> Dict MemberId Member
 getMembersNotYetParticipatingToday model =
-  Dict.values (Dict.intersect model.groupMembers (getParticipantsForToday model))
+  Dict.diff model.groupMembers (getParticipantsForToday model)
 
 getParticipantsForToday: Model -> Dict MemberId Member
 getParticipantsForToday model = Dict.union (getDriversForToday model) (getPassengersForToday model)
 
 getDriversForToday: Model -> Dict MemberId Member
-getDriversForToday model = model.groupMembers
+getDriversForToday model =
+  -- loop over all rides:
+  -- Dict.foldl : (comparable -> v -> b -> b) -> b -> Dict comparable v -> b
+  -- with
+  -- b = (Dict MemberId Member)
+  -- comparable = RideId
+  -- v = Ride
+  -- (comparable -> v -> b -> b) translates to
+  -- ( ride id -> ride -> (Dict MemberId Member) -> (Dict MemberId Member))  )
+  -- the accumulator gets inserted the drivers with the correct ids as key
+  Dict.foldl (\rideId ride -> (\accumulator -> (Dict.insert ride.driver.id ride.driver accumulator))) Dict.empty model.rides
 
 getPassengersForToday: Model -> Dict MemberId Member
-getPassengersForToday model = model.groupMembers
+getPassengersForToday model =
+  -- loop over all rides:
+  -- Dict.foldl : (comparable -> v -> b -> b) -> b -> Dict comparable v -> b
+  -- with
+  -- b = (Dict MemberId Member)
+  -- comparable = RideId
+  -- v = Ride
+  -- (comparable -> v -> b -> b) translates to
+  -- ( ride id -> ride -> (Dict MemberId Member) -> (Dict MemberId Member))  )
+  -- the accumulator just gathers all passenger dicts using Dict.union
+  Dict.foldl (\rideId ride -> (\accumulator -> (Dict.union accumulator ride.passengers))) Dict.empty model.rides
 
 
 -- init
@@ -139,10 +159,26 @@ view : Model -> Html Msg
 view model =
   div [] [
     div [] [ viewDate model.date ],
-    div [] [ viewConstellations model ]
+    div [] [ viewConstellations model ],
+    div [] [ viewSummary model ]
   ]
 
 -- drives
+
+viewSummary: Model -> Html Msg
+viewSummary model =
+  div [] [
+    h1 [] [ text "Today's drivers are" ],
+    div [] (List.map (\member -> div [] [ text member.name ]) (Dict.values (getDriversForToday model))),
+    h1 [] [ text "Today's driver ids are" ],
+    div [] (List.map (\id -> div [] [ text (toString id) ]) (Dict.keys (getDriversForToday model))),
+    h1 [] [ text "Today's passengers are" ],
+    div [] (List.map (\member -> div [] [ text member.name ]) (Dict.values (getPassengersForToday model))),
+    h1 [] [ text "Today's participants are" ],
+    div [] (List.map (\member -> div [] [ text member.name ]) (Dict.values (getParticipantsForToday model))),
+    h1 [] [ text "Not participating today are" ],
+    div [] (List.map (\member -> div [] [ text member.name ]) (Dict.values (getMembersNotYetParticipatingToday model)))
+  ]
 
 viewConstellations: Model -> Html Msg
 viewConstellations model =
@@ -199,7 +235,14 @@ viewPassenger passenger =
 
 viewNewPassenger: Model -> Ride -> Html Msg
 viewNewPassenger model ride =
-  td [] [ select [ onSelectMember (NewPassenger ride.id) ] (newPassengerOptionList (Dict.values model.groupMembers)) ]
+  let remainingMembers = getMembersNotYetParticipatingToday model in
+  if (Dict.isEmpty remainingMembers) then
+    td [] []
+  else
+    td [] [
+      select [ onSelectMember (NewPassenger ride.id) ]
+        (newPassengerOptionList (Dict.values (getMembersNotYetParticipatingToday model)))
+    ]
 
 newPassengerOptionList: List Member -> List (Html Msg)
 newPassengerOptionList listMembers =
@@ -207,10 +250,17 @@ newPassengerOptionList listMembers =
 
 viewNewRide: Model -> Html Msg
 viewNewRide model =
-  tr [] [
-    td [] [ select [ onSelectMember NewDriver ] (newRideOptionList (Dict.values model.groupMembers)) ],
-    td [] []
-  ]
+  let remainingMembers = getMembersNotYetParticipatingToday model in
+  if (Dict.isEmpty remainingMembers) then
+    tr [] []
+  else
+    tr [] [
+      td [] [
+        select [ onSelectMember NewDriver ]
+          (newRideOptionList (Dict.values (getMembersNotYetParticipatingToday model)))
+      ],
+      td [] []
+    ]
 
 newRideOptionList: List Member -> List (Html Msg)
 newRideOptionList listMembers =
