@@ -3,6 +3,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (on, targetValue)
 import Date exposing (..)
 import Json.Decode as Json
+import Dict exposing (Dict)
 
 main =
   Html.program { init = init, view = view, update = update, subscriptions = subscriptions }
@@ -10,88 +11,103 @@ main =
 
 -- model
 
+type alias MemberId = Int
 type alias Member = {
-  id: Int,
+  id: MemberId,
   name: String
 }
 
+invalidMember = Member -1 "invalid member"
+
+type alias RideId = Int
 type alias Ride = {
-  id: Int,
+  id: RideId,
   driver: Member,
-  passengers: List Member
+  passengers: Dict MemberId Member
 }
+
+invalidRide = Ride -1 invalidMember Dict.empty
 
 type alias Model = {
   date: Date,
-  groupMembers: List Member,
-  rides: List Ride
+  groupMembers: Dict MemberId Member,
+  rides: Dict RideId Ride
 }
 
-getNewRideId: Model -> Int
-getNewRideId model =
-  List.length model.rides
+getNewRideId: Model -> RideId
+getNewRideId model = Dict.size model.rides
 
-convertToId: String -> Int
-convertToId idAsString = Result.withDefault -1 (String.toInt idAsString)
+newRide: Model -> MemberId -> Ride
+newRide model driverId = (Ride (getNewRideId model) (getMemberById model driverId) Dict.empty)
 
-isValidMemberId: Model -> Int -> Bool
-isValidMemberId model memberId =
-  case getMaybeMemberById model memberId of
-    Nothing -> False
-    Just member -> True
+convertToMemberId: String -> MemberId
+convertToMemberId idAsString = Result.withDefault -1 (String.toInt idAsString)
 
-getMaybeMemberById: Model -> Int -> Maybe Member
-getMaybeMemberById model memberId =
-  List.filter (\member -> member.id == memberId) model.groupMembers |> List.head
+isValidMemberId: Model -> MemberId -> Bool
+isValidMemberId model memberId = Dict.member memberId model.groupMembers
 
-getMemberById: Model -> Int -> Member
+getMemberById: Model -> MemberId -> Member
 getMemberById model memberId =
-  case getMaybeMemberById model memberId of
-    Nothing -> Member -1 "invalid member"
+  case Dict.get memberId model.groupMembers of
+    Nothing -> invalidMember
     Just member -> member
 
-getMaybeRideById: Model -> Int -> Maybe Ride
-getMaybeRideById model rideId =
-  List.filter (\ride -> ride.id == rideId) model.rides |> List.head
-
-getRideById: Model -> Int -> Ride
+getRideById: Model -> RideId -> Ride
 getRideById model rideId =
-  case getMaybeRideById model rideId of
-    Nothing -> Ride -1 (Member -1 "invalid ride") []
+  case Dict.get rideId model.rides of
+    Nothing -> invalidRide
     Just ride -> ride
 
-addNewRide: Model -> Int -> Model
+addNewRide: Model -> MemberId -> Model
 addNewRide model driverId =
   if isValidMemberId model driverId then
-    {
-      model | rides = (
-        model.rides ++ [ (Ride (getNewRideId model) (getMemberById model driverId) []) ]
-      )
-    }
+    let ride = newRide model driverId in
+      { model | rides = Dict.insert ride.id ride model.rides }
   else
     model
 
-addPassengerToRideInModel: Model -> Int -> Member -> Model
+addPassengerToRideInModel: Model -> RideId -> Member -> Model
 addPassengerToRideInModel model rideId passenger =
   if isValidMemberId model passenger.id then
-    { model | rides = List.map (\ride -> addPassengerToRideWithId rideId ride passenger) model.rides }
+    { model | rides = Dict.update rideId (\ride -> addPassengerToRide ride passenger) model.rides }
   else
     model
 
-addPassengerToRideWithId: Int -> Ride -> Member -> Ride
-addPassengerToRideWithId rideIdToUpdate ride passenger =
-  if ride.id == rideIdToUpdate then
-    { ride | passengers = (ride.passengers ++ [passenger]) }
-  else
-    ride
+addPassengerToRide: Maybe Ride -> Member -> Maybe Ride
+addPassengerToRide ride passenger =
+  case ride of
+    Nothing -> Just invalidRide
+    Just ride -> Just { ride | passengers = (Dict.insert passenger.id passenger ride.passengers) }
 
+getMembersNotYetParticipatingToday: Model -> List Member
+getMembersNotYetParticipatingToday model =
+  Dict.values (Dict.intersect model.groupMembers (getParticipantsForToday model))
+
+getParticipantsForToday: Model -> Dict MemberId Member
+getParticipantsForToday model = Dict.union (getDriversForToday model) (getPassengersForToday model)
+
+getDriversForToday: Model -> Dict MemberId Member
+getDriversForToday model = model.groupMembers
+
+getPassengersForToday: Model -> Dict MemberId Member
+getPassengersForToday model = model.groupMembers
+
+
+-- init
+
+getGroupMembers: Dict MemberId Member
+getGroupMembers =
+  Dict.empty
+    |> Dict.insert 0 (Member 0 "Phil")
+    |> Dict.insert 1 (Member 1 "Jojo")
+    |> Dict.insert 2 (Member 2 "Bernhard")
 
 init: (Model, Cmd Msg)
 init =
   (Model
     (Date.fromString "2016/12/18" |> Result.withDefault (Date.fromTime 0))
-    [ (Member 0 "Phil"), (Member 1 "Jojo"), (Member 2 "Bernhard") ]
-    [],
+    getGroupMembers
+    Dict.empty,
   Cmd.none)
 
 
@@ -112,10 +128,10 @@ update: Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     NewDriver newDriverId ->
-      (addNewRide model (convertToId newDriverId), Cmd.none)
+      (addNewRide model (convertToMemberId newDriverId), Cmd.none)
 
     NewPassenger rideId newPassengerId ->
-      (addPassengerToRideInModel model rideId (getMemberById model (convertToId newPassengerId)), Cmd.none)
+      (addPassengerToRideInModel model rideId (getMemberById model (convertToMemberId newPassengerId)), Cmd.none)
 
 -- views
 
@@ -146,7 +162,7 @@ viewConstellations model =
 
 viewRides: Model -> List (Html Msg)
 viewRides model =
-  if List.isEmpty model.rides then
+  if Dict.isEmpty model.rides then
     [
       -- tr [] [
       --   td [] [ text "No rides selected yet" ],
@@ -154,7 +170,7 @@ viewRides model =
       -- ]
     ]
   else
-    (List.map (\ride -> viewRide model ride) model.rides)
+    (List.map (\ride -> viewRide model ride) (Dict.values model.rides))
 
 viewRide: Model -> Ride -> Html Msg
 viewRide model ride =
@@ -175,7 +191,7 @@ viewPassengersTable model ride =
 
 viewPassengers: Model -> Ride -> List (Html Msg)
 viewPassengers model ride =
-  (List.map viewPassenger ride.passengers)
+  (List.map viewPassenger (Dict.values ride.passengers))
 
 viewPassenger: Member -> Html Msg
 viewPassenger passenger =
@@ -183,7 +199,7 @@ viewPassenger passenger =
 
 viewNewPassenger: Model -> Ride -> Html Msg
 viewNewPassenger model ride =
-  td [] [ select [ onSelectMember (NewPassenger ride.id) ] (newPassengerOptionList model.groupMembers) ]
+  td [] [ select [ onSelectMember (NewPassenger ride.id) ] (newPassengerOptionList (Dict.values model.groupMembers)) ]
 
 newPassengerOptionList: List Member -> List (Html Msg)
 newPassengerOptionList listMembers =
@@ -192,7 +208,7 @@ newPassengerOptionList listMembers =
 viewNewRide: Model -> Html Msg
 viewNewRide model =
   tr [] [
-    td [] [ select [ onSelectMember NewDriver ] (newRideOptionList model.groupMembers) ],
+    td [] [ select [ onSelectMember NewDriver ] (newRideOptionList (Dict.values model.groupMembers)) ],
     td [] []
   ]
 
