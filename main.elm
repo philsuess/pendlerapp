@@ -47,6 +47,9 @@ convertToMemberId idAsString = Result.withDefault -1 (String.toInt idAsString)
 isValidMemberId: Model -> MemberId -> Bool
 isValidMemberId model memberId = Dict.member memberId model.groupMembers
 
+isValidRideId: Model -> RideId -> Bool
+isValidRideId model rideId = Dict.member rideId model.rides
+
 getMemberById: Model -> MemberId -> Member
 getMemberById model memberId =
   case Dict.get memberId model.groupMembers of
@@ -103,6 +106,19 @@ addPassengerToRide ride passenger =
   case ride of
     Nothing -> Just invalidRide
     Just ride -> Just { ride | passengers = (Dict.insert passenger.id passenger ride.passengers) }
+
+removePassengerFromRideInModel: Model -> RideId -> MemberId -> Model
+removePassengerFromRideInModel model rideId passengerId =
+  if isValidMemberId model passengerId && isValidRideId model rideId then
+    { model | rides = Dict.update rideId (\ride -> removePassengerFromRide ride passengerId) model.rides }
+  else
+    model
+
+removePassengerFromRide: Maybe Ride -> MemberId -> Maybe Ride
+removePassengerFromRide ride passengerId =
+  case ride of
+    Nothing -> Just invalidRide
+    Just ride -> Just { ride | passengers = Dict.remove passengerId ride.passengers }
 
 getMembersNotYetParticipatingToday: Model -> Dict MemberId Member
 getMembersNotYetParticipatingToday model =
@@ -169,6 +185,7 @@ type Msg =
   NewDriver String -- argument is id as a string
   | UpdateDriver RideId String
   | NewPassenger RideId String -- arguemnts are rideId and passenger id as string
+  | RemovePassenger RideId MemberId
   | EditRide RideId -- argument is rideId
 
 update: Msg -> Model -> (Model, Cmd Msg)
@@ -177,13 +194,17 @@ update msg model =
     NewDriver newDriverIdAsString ->
       (addNewRide model (convertToMemberId newDriverIdAsString), Cmd.none)
 
+    UpdateDriver rideId newDriverIdAsString ->
+      ((updateRideDriverInModel model rideId (convertToMemberId newDriverIdAsString)), Cmd.none)
+
     NewPassenger rideId newPassengerId ->
       (addPassengerToRideInModel model rideId (getMemberById model (convertToMemberId newPassengerId)), Cmd.none)
 
+    RemovePassenger rideId passengerId ->
+      ((removePassengerFromRideInModel model rideId passengerId), Cmd.none)
+
     EditRide rideId -> ((toggleRideEditModeInModel model rideId), Cmd.none)
 
-    UpdateDriver rideId newDriverIdAsString ->
-      ((updateRideDriverInModel model rideId (convertToMemberId newDriverIdAsString)), Cmd.none)
 
 -- views
 
@@ -281,11 +302,17 @@ viewPassengersTable model ride =
 
 viewPassengers: Model -> Ride -> List (Html Msg)
 viewPassengers model ride =
-  (List.map viewPassenger (Dict.values ride.passengers))
+  (List.map (\passenger -> viewPassenger passenger ride.id) (Dict.values ride.passengers))
 
-viewPassenger: Member -> Html Msg
-viewPassenger passenger =
-  td [] [ text passenger.name ]
+viewPassenger: Member -> RideId -> Html Msg
+viewPassenger passenger rideId =
+  td [] [
+    div [] [
+      text passenger.name,
+      br [] [],
+      button [ onClick (RemovePassenger rideId passenger.id) ] [ text "Remove" ]
+    ]
+  ]
 
 viewNewPassenger: Model -> Ride -> Html Msg
 viewNewPassenger model ride =
