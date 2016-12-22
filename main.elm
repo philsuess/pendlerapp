@@ -1,6 +1,6 @@
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (on, targetValue)
+import Html.Events exposing (on, targetValue, onClick)
 import Date exposing (..)
 import Json.Decode as Json
 import Dict exposing (Dict)
@@ -23,10 +23,11 @@ type alias RideId = Int
 type alias Ride = {
   id: RideId,
   driver: Member,
-  passengers: Dict MemberId Member
+  passengers: Dict MemberId Member,
+  editMode: Bool
 }
 
-invalidRide = Ride -1 invalidMember Dict.empty
+invalidRide = Ride -1 invalidMember Dict.empty False
 
 type alias Model = {
   date: Date,
@@ -38,7 +39,7 @@ getNewRideId: Model -> RideId
 getNewRideId model = Dict.size model.rides
 
 newRide: Model -> MemberId -> Ride
-newRide model driverId = (Ride (getNewRideId model) (getMemberById model driverId) Dict.empty)
+newRide model driverId = (Ride (getNewRideId model) (getMemberById model driverId) Dict.empty False)
 
 convertToMemberId: String -> MemberId
 convertToMemberId idAsString = Result.withDefault -1 (String.toInt idAsString)
@@ -65,6 +66,30 @@ addNewRide model driverId =
       { model | rides = Dict.insert ride.id ride model.rides }
   else
     model
+
+updateRideDriverInModel: Model -> RideId -> MemberId -> Model
+updateRideDriverInModel model rideId newDriverId =
+  if isValidMemberId model newDriverId then
+    let newDriver = getMemberById model newDriverId in
+      { model | rides = Dict.update rideId (\ride -> updateRideDriver ride newDriver) model.rides }
+  else
+    model
+
+updateRideDriver: Maybe Ride -> Member -> Maybe Ride
+updateRideDriver ride newDriver =
+  case ride of
+    Nothing -> Just invalidRide
+    Just ride -> Just { ride | driver = newDriver }
+
+toggleRideEditModeInModel: Model -> RideId -> Model
+toggleRideEditModeInModel model rideId =
+  { model | rides = Dict.update rideId (\ride -> toggleRideEditMode ride) model.rides }
+
+toggleRideEditMode: Maybe Ride -> Maybe Ride
+toggleRideEditMode ride =
+  case ride of
+    Nothing -> Just invalidRide
+    Just ride -> Just { ride | editMode = not ride.editMode }
 
 addPassengerToRideInModel: Model -> RideId -> Member -> Model
 addPassengerToRideInModel model rideId passenger =
@@ -142,16 +167,23 @@ subscriptions model =
 
 type Msg =
   NewDriver String -- argument is id as a string
-  | NewPassenger Int String -- arguemnts are rideId and passenger id as string
+  | UpdateDriver RideId String
+  | NewPassenger RideId String -- arguemnts are rideId and passenger id as string
+  | EditRide RideId -- argument is rideId
 
 update: Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
-    NewDriver newDriverId ->
-      (addNewRide model (convertToMemberId newDriverId), Cmd.none)
+    NewDriver newDriverIdAsString ->
+      (addNewRide model (convertToMemberId newDriverIdAsString), Cmd.none)
 
     NewPassenger rideId newPassengerId ->
       (addPassengerToRideInModel model rideId (getMemberById model (convertToMemberId newPassengerId)), Cmd.none)
+
+    EditRide rideId -> ((toggleRideEditModeInModel model rideId), Cmd.none)
+
+    UpdateDriver rideId newDriverIdAsString ->
+      ((updateRideDriverInModel model rideId (convertToMemberId newDriverIdAsString)), Cmd.none)
 
 -- views
 
@@ -187,7 +219,8 @@ viewConstellations model =
       thead [] [
         tr [] [
           th [] [ text "Driver" ],
-          th [] [ text "Passengers" ]
+          th [] [ text "Passengers" ],
+          th [] [ text "Options" ]
         ]
       ],
       tbody [] ((viewRides model) ++ [ viewNewRide model ])
@@ -202,7 +235,8 @@ viewRides model =
     [
       -- tr [] [
       --   td [] [ text "No rides selected yet" ],
-      --   td [] [ text "no driver, no passengers..." ]
+      --   td [] [ text "no driver, no passengers..." ],
+      --   td [] [ text "no options needed for no ride" ]
       -- ]
     ]
   else
@@ -211,9 +245,29 @@ viewRides model =
 viewRide: Model -> Ride -> Html Msg
 viewRide model ride =
   tr [] [
-    td [] [ text ride.driver.name ],
-    td [] (viewPassengersTable model ride)
+    viewRideDriver model ride,
+    td [] (viewPassengersTable model ride),
+    td [] [ button [ onClick (EditRide ride.id) ] [ text "Toggle edit mode" ] ]
   ]
+
+viewRideDriver: Model -> Ride -> Html Msg
+viewRideDriver model ride =
+  if ride.editMode then
+    td [] [ selectDriver model (UpdateDriver ride.id) ride.driver ]
+  else
+    td [] [ text ride.driver.name ]
+
+selectDriver: Model -> (String -> Msg) -> Member -> Html Msg
+selectDriver model msg currentDriver =
+  if isValidMemberId model currentDriver.id then
+    select [ onSelectMember msg ]
+      (List.append
+        (driversOptionList (Dict.values (getMembersNotYetParticipatingToday model)) ("Choose driver (currently " ++ currentDriver.name ++")"))
+        [(option [ value (toString currentDriver.id), selected True ] [ text currentDriver.name ])]
+      )
+  else
+    select [ onSelectMember msg ]
+      (driversOptionList (Dict.values (getMembersNotYetParticipatingToday model)) "Add new driver" )
 
 viewPassengersTable: Model -> Ride -> List (Html Msg)
 viewPassengersTable model ride =
@@ -255,16 +309,14 @@ viewNewRide model =
     tr [] []
   else
     tr [] [
-      td [] [
-        select [ onSelectMember NewDriver ]
-          (newRideOptionList (Dict.values (getMembersNotYetParticipatingToday model)))
-      ],
+      td [] [ selectDriver model NewDriver invalidMember ],
+      td [] [],
       td [] []
     ]
 
-newRideOptionList: List Member -> List (Html Msg)
-newRideOptionList listMembers =
-  (option [ value "-1" ] [ text "Add a driver" ]) :: (List.map memberToOption listMembers)
+driversOptionList: List Member -> String -> List (Html Msg)
+driversOptionList listMembers defaultEntry =
+  (option [ value "-1" ] [ text defaultEntry ]) :: (List.map memberToOption listMembers)
 
 onSelectMember: (String -> msg) -> Html.Attribute msg
 onSelectMember msg =
