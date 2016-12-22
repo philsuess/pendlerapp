@@ -120,6 +120,10 @@ removePassengerFromRide ride passengerId =
     Nothing -> Just invalidRide
     Just ride -> Just { ride | passengers = Dict.remove passengerId ride.passengers }
 
+removeRideInModel: Model -> RideId -> Model
+removeRideInModel model rideId =
+  { model | rides = Dict.remove rideId model.rides }
+
 getMembersNotYetParticipatingToday: Model -> Dict MemberId Member
 getMembersNotYetParticipatingToday model =
   Dict.diff model.groupMembers (getParticipantsForToday model)
@@ -183,10 +187,11 @@ subscriptions model =
 
 type Msg =
   NewDriver String -- argument is id as a string
-  | UpdateDriver RideId String
-  | NewPassenger RideId String -- arguemnts are rideId and passenger id as string
+  | UpdateDriver RideId String -- second arguemnt is passenger id as string
+  | NewPassenger RideId String -- second arguemnt is passenger id as string
   | RemovePassenger RideId MemberId
-  | EditRide RideId -- argument is rideId
+  | EditRide RideId
+  | RemoveRide RideId
 
 update: Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -204,6 +209,8 @@ update msg model =
       ((removePassengerFromRideInModel model rideId passengerId), Cmd.none)
 
     EditRide rideId -> ((toggleRideEditModeInModel model rideId), Cmd.none)
+
+    RemoveRide rideId -> ((removeRideInModel model rideId), Cmd.none)
 
 
 -- views
@@ -268,7 +275,13 @@ viewRide model ride =
   tr [] [
     viewRideDriver model ride,
     td [] (viewPassengersTable model ride),
-    td [] [ button [ onClick (EditRide ride.id) ] [ text "Toggle edit mode" ] ]
+    td [] [
+      div [] [
+        button [ onClick (EditRide ride.id) ] [ text "Toggle edit mode" ],
+        br [] [],
+        button [ onClick (RemoveRide ride.id) ] [ text "Remove" ]
+      ]
+    ]
   ]
 
 viewRideDriver: Model -> Ride -> Html Msg
