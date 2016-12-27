@@ -5,6 +5,13 @@ import Date exposing (..)
 import Json.Decode as Json
 import Dict exposing (Dict)
 
+import Html.CssHelpers
+import PendlerCss
+
+{ id, class, classList } =
+    Html.CssHelpers.withNamespace "pendlerapp"
+
+
 main =
   Html.program { init = init, view = view, update = update, subscriptions = subscriptions }
 
@@ -218,6 +225,7 @@ update msg model =
 view : Model -> Html Msg
 view model =
   div [] [
+    div [ id PendlerCss.Page ] [ text "this has the Page id" ],
     div [] [ viewDate model.date ],
     div [] [ viewConstellations model ],
     div [] [ viewSummary model ]
